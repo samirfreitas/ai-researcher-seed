@@ -8,7 +8,7 @@ Recursos GCP provisionados no Bloco A, fora do controle de versão (não há Ter
 
 | Recurso | Valor |
 |---|---|
-| Projeto GCP | `ai-researcher-capstone` (troque pelo seu — ver nota acima) |
+| Projeto GCP | `Faculdade` (troque pelo seu — ver nota acima) |
 | Região padrão | `us-central1` (escolhida pela cobertura de modelos Gemini estáveis no Vertex AI; `southamerica-east1` tem cobertura mais restrita) |
 | Billing account | específica da sua conta GCP — `gcloud billing accounts list` |
 | Artifact Registry | repo Docker `ai-researcher` em `us-central1` |
@@ -17,7 +17,7 @@ Recursos GCP provisionados no Bloco A, fora do controle de versão (não há Ter
 | Usuário da aplicação | `app_user`, credenciais apenas no Secret Manager |
 | Secret Manager | `database-url` — connection string do `app_user`, via socket Unix (`?host=/cloudsql/...`), formato que o Cloud Run usa em produção (C.6). Localmente o `docker-compose` usa uma `DATABASE_URL` própria, TCP direto pro Postgres do compose — nunca lê este secret. |
 | Workload Identity Federation | pool `github-actions-pool`, provider `github-actions-provider`, restrito ao repositório `unipds-engenharia-de-ia-aplicada/capstone-project-ai-researcher` via `attribute.repository` |
-| Service account de deploy | `github-actions-deployer@ai-researcher-capstone.iam.gserviceaccount.com` — roles: `run.admin`, `artifactregistry.writer`, `iam.serviceAccountUser`, `cloudsql.client`, `secretmanager.secretAccessor`, `cloudbuild.builds.editor`, `firebasehosting.admin` (esta última adicionada no C.5, pro `firebase deploy --only hosting` do workflow) |
+| Service account de deploy | `github-actions-deployer@ai-researcher-capstone.iam.gserviceaccount.com` — roles: `run.admin`, `artifactregistry.writer`, `iam.serviceAccountUser`, `cloudsql.client`, `secretmanager.secretAccessor`, `cloudbuild.builds.editor`, `firebasehosting.admin` (adicionada no C.5, pro `firebase deploy --only hosting` do workflow), `serviceusage.serviceUsageConsumer` (necessária em projeto novo — ver nota abaixo dos problemas do Bloco C) |
 | Firebase Hosting | inicializado no projeto; placeholder do A.6 substituído pelo `firebase.json` versionado e pelo build real do Angular a partir do C.5 |
 
 Nenhuma credencial foi escrita em arquivo local ou versionado — a senha do `app_user` e a connection string só existem no Secret Manager.
@@ -51,6 +51,14 @@ Três problemas só apareceram rodando o workflow de verdade contra produção (
 1. O bucket de staging padrão do Cloud Build (`gs://ai-researcher-capstone_cloudbuild`, criado com ACL legada na primeira vez que rodei `gcloud builds submit` manualmente no A.2) recusava acesso da service account de deploy mesmo depois de IAM binding no bucket e `serviceusage.serviceUsageConsumer` no projeto. Resolvido trocando a etapa de build por `docker build` + `docker push` direto no runner do GitHub Actions, sem depender do Cloud Build.
 2. A service account **de execução** do Cloud Run (`473939301392-compute@developer.gserviceaccount.com`, a padrão do Compute — diferente da service account *de deploy*) precisou de `secretmanager.secretAccessor` no secret `database-url` pra conseguir ler o próprio segredo em runtime.
 3. `pnpm --filter @hero/web build` no job de deploy pulava o Turborepo e nunca buildava `@hero/contracts` primeiro — corrigido usando `pnpm turbo run build --filter=@hero/web`, que respeita `dependsOn: ["^build"]`.
+
+**Em projeto novo, a service account de deploy também precisa de `serviceusage.serviceUsageConsumer`.** Antes de publicar, o `firebase deploy --only hosting` consulta se a API `firebasehosting.googleapis.com` está habilitada no projeto — e `firebasehosting.admin` não inclui a permissão `serviceusage.services.get`. Sem ela, a etapa "Deploy no Firebase Hosting" falha com `HTTP Error: 403, Permission denied to get service [firebasehosting.googleapis.com]`, mesmo com o deploy no Cloud Run já concluído no mesmo job. Na instância de referência a role já tinha sido concedida durante a investigação do problema 1, por isso o erro não apareceu lá. É uma role de leitura e uso de APIs — não permite habilitar nem desabilitar nada:
+
+```bash
+gcloud projects add-iam-policy-binding <seu-project-id> \
+  --member="serviceAccount:github-actions-deployer@<seu-project-id>.iam.gserviceaccount.com" \
+  --role="roles/serviceusage.serviceUsageConsumer" --condition=None
+```
 
 **Cloud Run público:** liberado via `gcloud run services add-iam-policy-binding ai-researcher-api --region=us-central1 --member=allUsers --role=roles/run.invoker` em `2026-08-08`, depois de confirmar explicitamente — é exposição real pra internet inteira, não algo pra seguir o plano sem checar. Risco aceito nesse estágio porque a única rota é `/api/health` (barata, sem custo de LLM); rate limiting e alerta de abuso entram no Bloco G, antes do `/chat` (Bloco D) trazer custo de verdade por requisição. `pnpm capstone:check --url https://ai-researcher-capstone.web.app` confirma 3/3.
 
