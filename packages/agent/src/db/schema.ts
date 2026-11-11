@@ -56,9 +56,6 @@ export const documentos = pgTable(
 
     // Busca por similaridade de cosseno. HNSW dispensa treino prévio (ao contrário do
     // IVFFlat), então o índice pode ser criado com a tabela ainda vazia.
-    index('documentos_embedding_hnsw_idx').using(
-      'hnsw',
-      table.embedding.op('vector_cosine_ops'),
-    ),
+    index('documentos_embedding_hnsw_idx').using('hnsw', table.embedding.op('vector_cosine_ops')),
   ],
 );

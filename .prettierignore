@@ -7,3 +7,6 @@ pnpm-lock.yaml
 
 # Prosa: markdown didático e documentação, não é escopo do Prettier
 **/*.md
+
+# Snapshots e journal gerados pelo drizzle-kit — reformatar faria o próximo `db:generate` reverter
+packages/agent/drizzle/meta
